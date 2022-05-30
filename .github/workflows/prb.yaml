@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  Lint:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -16,14 +16,17 @@ jobs:
         with:
           go-version: 1.17
 
-      - uses: golangci/golangci-lint-action@v3
+      - name: Lint
+        uses: golangci/golangci-lint-action@v3
         with:
           version: v1.29
 
-  Unit Test:
-    depends-on: Lint
-    runs-on: ubuntu-latest
-    steps:
       - name: Unit tests
         run: |
           go test -v ./...
+
+      - name: Start containers
+        run: docker compose up --build
+
+      - name: Stop containers
+        run: docker compose down
