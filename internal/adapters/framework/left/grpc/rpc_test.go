@@ -5,7 +5,6 @@ import (
 	"backend/internal/adapters/core/arithmetic"
 	"backend/internal/adapters/framework/left/grpc/pb"
 	"backend/internal/adapters/framework/right/db"
-	"backend/internal/ports"
 	"context"
 	"log"
 	"net"
@@ -26,28 +25,36 @@ func init() {
 	lis = bufconn.Listen(bufSize)
 	grpcServer := grpc.NewServer()
 
-	// ports
-	var dbaseAdapter ports.DbPort
-	var core ports.ArtithmeticPort
-	var appAdapter ports.APIPort
-	var grpcAdapter ports.GRPCPort
-
 	dbaseDriver := os.Getenv("DB_DRIVER")
 	dsourceName := os.Getenv("DS_NAME")
-	dbaseAdapter, err = db.NewAdapter(dbaseDriver, dsourceName)
+
+	dbAdapter, err := db.NewAdapter(dbaseDriver, dsourceName)
 	if err != nil {
 		log.Fatalf("failed to initiate dbase connection: %v", err)
 	}
-	defer dbaseAdapter.CloseDbConnection()
 
-	core = arithmetic.NewAdapter()
+	// core
+	core := arithmetic.NewAdapter()
 
-	appAdapter = api.NewAdapter(dbaseAdapter, core)
+	// NOTE: The application's right side port for driven
+	// adapters, in this case, a db adapter.
+	// Therefore the type for the dbAdapter parameter
+	// that is to be injected into the NewApplication will
+	// be of type DbPort
+	applicationAPI := api.NewAdapter(dbAdapter, core)
 
-	grpcAdapter = NewAdapter(appAdapter)
+	// NOTE: We use dependency injection to give the grpc
+	// adapter access to the application, therefore
+	// the location of the port is inverted. That is
+	// the grpc adapter accesses the hexagon's driving port at the
+	// application boundary via dependency injection,
+	// therefore the type for the applicaitonAPI parameter
+	// that is to be injected into the gRPC adapter will
+	// be of type APIPort which is our hexagons left side
+	// port for driving adapters
+	gRPCAdapter := NewAdapter(applicationAPI)
 
-	pb.RegisterArithmeticServiceServer(grpcServer, grpcAdapter)
-
+	pb.RegisterArithmeticServiceServer(grpcServer, gRPCAdapter)
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatalf("test server start error: %v", err)
@@ -104,7 +111,7 @@ func TestGetSubtraction(t *testing.T) {
 		t.Fatalf("expected: %v, got: %v", nil, err)
 	}
 
-	require.Equal(t, answer.Value, int32(2))
+	require.Equal(t, answer.Value, int32(0))
 }
 
 func TestGetMultiplication(t *testing.T) {
@@ -124,7 +131,7 @@ func TestGetMultiplication(t *testing.T) {
 		t.Fatalf("expected: %v, got: %v", nil, err)
 	}
 
-	require.Equal(t, answer.Value, int32(2))
+	require.Equal(t, answer.Value, int32(1))
 }
 
 func TestGetDivision(t *testing.T) {
@@ -144,5 +151,5 @@ func TestGetDivision(t *testing.T) {
 		t.Fatalf("expected: %v, got: %v", nil, err)
 	}
 
-	require.Equal(t, answer.Value, int32(2))
+	require.Equal(t, answer.Value, int32(1))
 }
